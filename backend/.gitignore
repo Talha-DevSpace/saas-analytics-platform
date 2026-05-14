@@ -1,0 +1,28 @@
+# Virtual environment
+venv/
+env/
+
+# Secrets
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Database
+*.db
+*.sqlite3
+
+# Logs
+*.log
+app.log
+
+# Alembic (keep migrations folder but ignore cache)
+migrations/__pycache__/
+
+# OS files
+.DS_Store
+Thumbs.db
