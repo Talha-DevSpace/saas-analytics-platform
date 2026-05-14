@@ -18,7 +18,7 @@ class Company(Base):
     name = Column(String(255), nullable=False)
 
     api_key = Column(
-        String(4),
+        String(64),
         unique=True,
         nullable=False,
         default=lambda: str(uuid.uuid4()).replace("-", "")
