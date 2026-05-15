@@ -27,15 +27,7 @@ def get_current_company(
     x_api_key: Optional[str] = Header(None),  # Reads "X-Api-Key" header
     db: Session = Depends(get_db)
 ) -> Company:
-    """
-    Every event endpoint needs to know WHICH company is sending data.
-    This function reads the API key from the request header,
-    finds the matching company, and returns it.
-
-    If API key is missing or wrong → 401 Unauthorized.
-
-    We reuse this function across multiple endpoints using Depends().
-    """
+  
     if not x_api_key:
         raise HTTPException(
             status_code=401,
@@ -66,20 +58,7 @@ def is_duplicate_event(
     page: str,
     redis_client
 ) -> bool:
-    """
-    Prevents the same event from being recorded multiple times
-    if a client accidentally sends it twice.
 
-    How it works:
-    1. Create a unique fingerprint (hash) from event properties
-    2. Check if this fingerprint exists in Redis
-    3. If yes → duplicate, reject it
-    4. If no → store fingerprint in Redis for 60 seconds, then allow
-
-    Why 60 seconds?
-    If the same exact event comes in within 60 seconds, it's a duplicate.
-    After 60 seconds, the same action is probably intentional.
-    """
 
     # Combine all identifying fields into one string
     raw_key = f"{company_id}:{user_id}:{event_name}:{page}"

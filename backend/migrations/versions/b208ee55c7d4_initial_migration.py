@@ -1,8 +1,8 @@
-"""create initial tables
+"""initial migration
 
-Revision ID: cd5b750133cb
-Revises: e563144bfa9d
-Create Date: 2026-05-13 02:33:34.634453
+Revision ID: b208ee55c7d4
+Revises: 
+Create Date: 2026-05-15 02:52:35.953923
 
 """
 from typing import Sequence, Union
@@ -12,8 +12,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'cd5b750133cb'
-down_revision: Union[str, Sequence[str], None] = 'e563144bfa9d'
+revision: str = 'b208ee55c7d4'
+down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -24,10 +24,13 @@ def upgrade() -> None:
     op.create_table('companies',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('name', sa.String(length=255), nullable=False),
+    sa.Column('email', sa.String(length=255), nullable=False),
+    sa.Column('hashed_password', sa.String(length=255), nullable=False),
     sa.Column('api_key', sa.String(length=64), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
     sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('api_key')
+    sa.UniqueConstraint('api_key'),
+    sa.UniqueConstraint('email')
     )
     op.create_table('analytics_daily',
     sa.Column('id', sa.UUID(), nullable=False),

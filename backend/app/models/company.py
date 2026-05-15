@@ -14,8 +14,11 @@ class Company(Base):
         primary_key=True,
         default=uuid.uuid4
     )
-
     name = Column(String(255), nullable=False)
+
+    # email for login
+    email = Column(String(255), unique=True, nullable=False)
+    hashed_password = Column(String(255), nullable=False)
 
     api_key = Column(
         String(64),
