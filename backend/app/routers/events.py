@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException, Header, Request, Query
 from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import datetime, timezone
@@ -12,98 +12,159 @@ from app.models.user import User
 from app.models.event import Event
 from app.schemas.event import EventCreate, EventResponse
 
-
-from app.workers.event_worker import process_event_queue
-from app.workers.analytics_worker import recalculate_daily_analytics
-
 router = APIRouter()
 
+ALLOWED_EVENTS = {
+    # Auto-tracked by tracker.js
+    "page_view",
+    "click",
+    "scroll_depth",
+    "time_on_page",
+    "session_start",
+    "session_end",
+    "form_submit",
+    "outbound_link",
+    # Custom events companies can fire manually
+    "signup",
+    "login",
+    "purchase",
+    "pricing_view",
+    "demo_request",
+    "download",
+    "video_play",
+    "search",
+    "add_to_cart",
+    "checkout",
+    "custom",
+}
 
-# ─────────────────────────────────────────────
-# HELPER: Authenticate company by API key
-# ─────────────────────────────────────────────
 
 def get_current_company(
-    x_api_key: Optional[str] = Header(None),  # Reads "X-Api-Key" header
+    x_api_key: Optional[str] = Header(None),
+    api_key: Optional[str] = Query(None),   # For sendBeacon fallback
     db: Session = Depends(get_db)
 ) -> Company:
-  
-    if not x_api_key:
-        raise HTTPException(
-            status_code=401,
-            detail="Missing X-API-Key header"
-        )
+    """
+    Authenticates via API key.
+    Accepts key from either:
+    - X-API-Key header (normal fetch requests)
+    - ?api_key= query parameter (sendBeacon requests)
+    """
+    key = x_api_key or api_key
 
-    company = db.query(Company).filter(
-        Company.api_key == x_api_key
-    ).first()
+    if not key:
+        raise HTTPException(status_code=401, detail="Missing API key")
 
+    company = db.query(Company).filter(Company.api_key == key).first()
     if not company:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid API key"
-        )
+        raise HTTPException(status_code=401, detail="Invalid API key")
 
     return company
 
 
-# ─────────────────────────────────────────────
-# HELPER: Deduplicate events using Redis
-# ─────────────────────────────────────────────
+def check_domain_whitelist(request: Request, company: Company):
+    """
+    Verifies the request comes from an authorized domain.
 
-def is_duplicate_event(
-    company_id: str,
-    user_id: str,
-    event_name: str,
-    page: str,
-    redis_client
-) -> bool:
+    Special cases:
+    - "*" in allowed_domains = allow all (development mode)
+    - No Origin header = direct API call (curl/Postman) = allow
+    - localhost/127.0.0.1 = always allow for testing
+    """
+
+    allowed = company.allowed_domains or []
+
+    # Allow all domains (wildcard mode)
+    if "*" in allowed:
+        return
+
+    # Get origin from request headers
+    origin = request.headers.get("origin") or request.headers.get("referer")
+
+    # No origin = direct API call (not from a browser) = allow
+    if not origin:
+        return
+
+    # Extract clean domain from origin
+    # "https://www.acmecorp.com/page" → "acmecorp.com"
+    clean = origin.lower()
+    clean = clean.replace("https://", "").replace("http://", "")
+    clean = clean.replace("www.", "")
+    clean = clean.split("/")[0].split(":")[0]
+
+    # Always allow localhost for development
+    if clean in ("localhost", "127.0.0.1", "", "localhost:3000", "127.0.0.1:3001", "https://poncho-heading-dreamland.ngrok-free.dev/"):
+        return
+
+    # Check against whitelist
+    if clean not in allowed:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Domain '{clean}' is not authorized. "
+                   f"Add it in your dashboard under Tracker Settings."
+        )
 
 
-    # Combine all identifying fields into one string
-    raw_key = f"{company_id}:{user_id}:{event_name}:{page}"
+def validate_event(payload: EventCreate):
+    """
+    Validates event data before processing.
 
-    # Hash it to a fixed-length string (saves Redis memory)
-    # MD5 is fine here — we don't need cryptographic security
+    Checks:
+    1. Event name is in the allowed list
+    2. user_id is a non-empty string
+    3. Page is a valid path (not a full URL with credentials)
+    4. Metadata is not excessively large
+    """
+
+    # 1. Validate event name
+    if payload.event not in ALLOWED_EVENTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid event '{payload.event}'. "
+                   f"Allowed: {', '.join(sorted(ALLOWED_EVENTS))}"
+        )
+
+    # 2. Validate user_id
+    if not payload.user_id or not payload.user_id.strip():
+        raise HTTPException(status_code=400, detail="user_id cannot be empty")
+
+    if len(payload.user_id) > 255:
+        raise HTTPException(status_code=400, detail="user_id too long (max 255 chars)")
+
+    # 3. Validate page
+    if payload.page and len(payload.page) > 2000:
+        raise HTTPException(status_code=400, detail="page URL too long (max 2000 chars)")
+
+    # 4. Validate metadata size
+    if payload.metadata:
+        metadata_str = json.dumps(payload.metadata)
+        if len(metadata_str) > 5000:
+            raise HTTPException(
+                status_code=400,
+                detail="metadata too large (max 5000 characters)"
+            )
+
+
+def is_duplicate_event(company_id, user_id, event_name, page, redis_client) -> bool:
+    raw_key   = f"{company_id}:{user_id}:{event_name}:{page}"
     fingerprint = hashlib.md5(raw_key.encode()).hexdigest()
+    redis_key   = f"dedup:{fingerprint}"
 
-    # Redis key format: "dedup:abc123def456..."
-    redis_key = f"dedup:{fingerprint}"
-
-    # Check if this key already exists in Redis
     if redis_client.exists(redis_key):
-        return True  # It's a duplicate
+        return True
 
-    # Store it with 60-second expiry
-    # setex = SET with EXpiry
-    # Arguments: key, time_in_seconds, value
     redis_client.setex(redis_key, 60, "1")
+    return False
 
-    return False  # Not a duplicate
 
-
-# ─────────────────────────────────────────────
-# HELPER: Get or create user
-# ─────────────────────────────────────────────
-
-def get_or_create_user(
-    company_id: str,
-    external_user_id: str,
-    db: Session
-) -> User:
-
-    # Try to find existing user
+def get_or_create_user(company_id, external_user_id, db) -> User:
     user = db.query(User).filter(
         User.company_id == company_id,
         User.external_user_id == external_user_id
     ).first()
 
-    # Create if not found
     if not user:
-        user = User(
-            company_id=company_id,
-            external_user_id=external_user_id
-        )
+        user = User(company_id=company_id, external_user_id=external_user_id)
         db.add(user)
         db.commit()
         db.refresh(user)
@@ -111,133 +172,52 @@ def get_or_create_user(
     return user
 
 
-# ─────────────────────────────────────────────
-# ENDPOINT: Track an event
-# ─────────────────────────────────────────────
-
 @router.post("/track", response_model=EventResponse, status_code=202)
 def track_event(
     payload: EventCreate,
+    request: Request,                                      # ← needed for domain check
     db: Session = Depends(get_db),
     redis_client=Depends(get_redis),
     company: Company = Depends(get_current_company)
 ):
-    # ── Step 1: Duplicate check ──
-    is_dup = is_duplicate_event(
-        company_id=str(company.id),
-        user_id=payload.user_id,
-        event_name=payload.event,
-        page=payload.page or "",
-        redis_client=redis_client
-    )
+    # ── 1. Domain whitelist check ──
+    check_domain_whitelist(request, company)
 
-    if is_dup:
-        return EventResponse(
-            status="duplicate",
-            message="Event already received within the last 60 seconds"
-        )
+    # ── 2. Event validation ──
+    validate_event(payload)
 
-    # ── Step 2: Get or create user (still needed for user_id) ──
-    user = get_or_create_user(
-        company_id=str(company.id),
-        external_user_id=payload.user_id,
-        db=db
-    )
+    # ── 3. Duplicate check ──
+    if is_duplicate_event(
+        str(company.id), payload.user_id,
+        payload.event, payload.page or "",
+        redis_client
+    ):
+        return EventResponse(status="duplicate",
+            message="Duplicate event ignored")
 
-    # ── Step 3: Determine timestamp ──
+    # ── 4. Get or create user ──
+    user = get_or_create_user(str(company.id), payload.user_id, db)
+
+    # ── 4.5: Update real-time visitor presence ──
+    realtime_key = f"realtime:{company.id}:{payload.user_id}"
+    redis_client.setex(realtime_key, 300, "1")
+
+    # ── 5. Push to Redis queue ──
     event_time = payload.timestamp or datetime.now(timezone.utc)
-
-    # ── Step 4: Push to Redis queue ONLY — no DB save here ──
-    queue_key = f"event_queue:{company.id}"
+    queue_key  = f"event_queue:{company.id}"
     event_data = {
         "company_id": str(company.id),
-        "user_id": str(user.id),
+        "user_id":    str(user.id),
         "event_name": payload.event,
-        "page": payload.page,
-        "metadata": payload.metadata,
-        "timestamp": event_time.isoformat()
+        "page":       payload.page,
+        "metadata":   payload.metadata,
+        "timestamp":  event_time.isoformat()
     }
     redis_client.rpush(queue_key, json.dumps(event_data))
 
-    return EventResponse(
-        status="accepted",
-        message="Event received and queued for processing"
-    )
+    return EventResponse(status="accepted",
+        message="Event received and queued")
 
-# ─────────────────────────────────────────────
-# ENDPOINT: Get recent events (for debugging)
-# ─────────────────────────────────────────────
-
-@router.get("/recent")
-def get_recent_events(
-    limit: int = 20,
-    db: Session = Depends(get_db),
-    company: Company = Depends(get_current_company)
-):
-    """
-    Returns the most recent events for this company.
-    The 'limit' query parameter controls how many to return.
-    URL example: GET /api/events/recent?limit=50
-    """
-
-    events = (
-        db.query(Event)
-        .filter(Event.company_id == company.id)
-        .order_by(Event.timestamp.desc())  # Newest first
-        .limit(limit)
-        .all()
-    )
-
-    return [
-        {
-            "id": str(e.id),
-            "event_name": e.event_name,
-            "page": e.page,
-            "timestamp": e.timestamp.isoformat()
-        }
-        for e in events
-    ]
-
-
-
-
-# ------------------------------------------------------
-
-@router.post("/process-queue")
-def trigger_queue_processing(
-    company: Company = Depends(get_current_company)
-):
-    """
-    Manually triggers the event queue worker.
-    Useful for testing without waiting for the scheduled run.
-
-    .delay() tells Celery to run this task asynchronously in the background.
-    It returns immediately without waiting for the task to finish.
-    """
-    task = process_event_queue.delay() # type: ignore
-
-    return {
-        "message": "Queue processing started",
-        "task_id": task.id   # You can use this ID to check task status
-    }
-
-
-@router.get("/task-status/{task_id}")
-def get_task_status(task_id: str):
-
-    from app.workers.celery_app import celery_app
-    from celery.result import AsyncResult
-
-    result = AsyncResult(task_id, app=celery_app)
-
-    return {
-        "task_id": task_id,
-        "status": result.status,           # PENDING, STARTED, SUCCESS, FAILURE
-        "result": result.result if result.ready() else None
-    }
-
-# =========================================================
-# =========================================================
 
 @router.post("/process-queue-direct")
 def process_queue_direct(
@@ -245,88 +225,73 @@ def process_queue_direct(
     redis_client=Depends(get_redis),
     company: Company = Depends(get_current_company)
 ):
-    """
-    Processes the event queue DIRECTLY — no Celery needed.
-    
-    Use this for:
-    - Testing queue processing works
-    - Debugging worker issues
-    - Development on Windows where Celery has issues
-
-    This runs synchronously — it waits until done then returns results.
-    """
-
-    queue_key = f"event_queue:{company.id}"
-
-    # Check how many items are in the queue
+    queue_key    = f"event_queue:{company.id}"
     queue_length = redis_client.llen(queue_key)
 
     if queue_length == 0:
-        return {
-            "status": "empty",
-            "message": "No events in queue",
-            "processed": 0
-        }
+        return {"status": "empty", "processed": 0}
 
     events_to_insert = []
-    failed = []
 
-    # Pop ALL items currently in the queue
     pipe = redis_client.pipeline()
     for _ in range(queue_length):
         pipe.lpop(queue_key)
-    raw_events = pipe.execute()
-    raw_events = [e for e in raw_events if e is not None]
+    raw_events = [e for e in pipe.execute() if e is not None]
 
-    # Parse each event
-    for raw_event in raw_events:
+    for raw in raw_events:
         try:
-            event_data = json.loads(raw_event)
-
-            event_obj = Event(
-                company_id=event_data["company_id"],
-                user_id=event_data["user_id"],
-                event_name=event_data["event_name"],
-                page=event_data.get("page"),
-                metadata_=event_data.get("metadata"),
-                timestamp=datetime.fromisoformat(event_data["timestamp"]),
+            d = json.loads(raw)
+            events_to_insert.append((Event(
+                company_id=d["company_id"],
+                user_id=d["user_id"],
+                event_name=d["event_name"],
+                page=d.get("page"),
+                metadata_=d.get("metadata"),
+                timestamp=datetime.fromisoformat(d["timestamp"]),
                 received_at=datetime.now(timezone.utc)
-            )
-            events_to_insert.append((event_obj, raw_event))
+            ), raw))
+        except Exception:
+            continue
 
-        except Exception as e:
-            failed.append({"raw": raw_event, "error": str(e)})
-
-    # Bulk insert into DB
     if events_to_insert:
         try:
             db.add_all([e[0] for e in events_to_insert])
             db.commit()
-
             return {
                 "status": "success",
                 "processed": len(events_to_insert),
-                "failed": len(failed),
                 "queue_remaining": redis_client.llen(queue_key)
             }
-
-        except Exception as db_error:
+        except Exception as e:
             db.rollback()
-
-            # Put events back in queue on DB failure
             pipe = redis_client.pipeline()
             for _, raw in events_to_insert:
                 pipe.rpush(queue_key, raw)
             pipe.execute()
+            return {"status": "db_error", "error": str(e)}
 
-            return {
-                "status": "db_error",
-                "error": str(db_error),
-                "events_returned_to_queue": len(events_to_insert)
-            }
+    return {"status": "nothing_inserted"}
 
-    return {
-        "status": "nothing_inserted",
-        "failed_to_parse": len(failed),
-        "failures": failed
-    }
+
+@router.get("/recent")
+def get_recent_events(
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    company: Company = Depends(get_current_company)
+):
+    events = (
+        db.query(Event)
+        .filter(Event.company_id == company.id)
+        .order_by(Event.timestamp.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "id":         str(e.id),
+            "event_name": e.event_name,
+            "page":       e.page,
+            "timestamp":  e.timestamp.isoformat()
+        }
+        for e in events
+    ]
