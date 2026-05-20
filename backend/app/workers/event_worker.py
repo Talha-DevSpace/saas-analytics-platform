@@ -6,14 +6,8 @@ import json
 import logging
 from datetime import datetime, timezone
 
-# ─────────────────────────────────────────────
-# What is logging?
-# Instead of print() statements, we use Python's logging module.
-# It adds timestamps, log levels (INFO, WARNING, ERROR),
-# and can write to files in production.
-# ─────────────────────────────────────────────
-logger = logging.getLogger(__name__)
 
+logger = logging.getLogger(__name__)
 
 @celery_app.task(
     name="app.workers.event_worker.process_event_queue",
@@ -29,6 +23,7 @@ def process_event_queue(self):
 
     try:
         queue_keys = redis_client.keys("event_queue:*")
+        print("Queue keys: ", queue_keys)
 
         if not queue_keys:
             logger.info("No event queues found. Nothing to process.")
@@ -36,7 +31,6 @@ def process_event_queue(self):
 
         for queue_key in queue_keys:
             events_to_insert = []
-            failed_events = []   # Track failed ones separately
 
             # Pop up to 100 events
             pipe = redis_client.pipeline()
@@ -86,7 +80,6 @@ def process_event_queue(self):
                     logger.error(f"DB insert failed: {db_error}")
 
                     # Only push back to queue on DB failure
-                    # NOT on duplicate — that was the bug before
                     pipe = redis_client.pipeline()
                     for _, raw in events_to_insert:
                         pipe.rpush(queue_key, raw)
@@ -104,17 +97,10 @@ def process_event_queue(self):
     logger.info(f"Done. Processed: {total_processed} | Failed: {total_failed}")
     return {"processed": total_processed, "failed": total_failed}
 
-
-
-
 @celery_app.task(name="app.workers.event_worker.cleanup_old_queue_data")
 def cleanup_old_queue_data():
     """
-    Cleans up any orphaned or stale data from Redis.
     Runs at midnight daily.
-
-    In practice, most keys expire automatically (we set TTLs),
-    but this catches anything that slipped through.
     """
     redis_client = get_redis()
 
@@ -123,7 +109,7 @@ def cleanup_old_queue_data():
     deleted_count = 0
 
     for key in queue_keys:
-        if redis_client.llen(key) == 0:  # llen = list length
+        if redis_client.llen(key) == 0:
             redis_client.delete(key)
             deleted_count += 1
 

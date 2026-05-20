@@ -113,7 +113,7 @@ export default function SnippetPanel() {
                 ))}
             </div>
 
-            {/* Snippet & Domains tab — your existing JSX goes here */}
+            {/* Snippet & Domains tab */}
             {activeSection === 'snippet' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
@@ -128,7 +128,7 @@ export default function SnippetPanel() {
                                     fontSize: '14px', fontWeight: 700,
                                     color: 'var(--text-primary)', marginBottom: '4px'
                                 }}>
-                                    🔌 Install Tracker
+                                    Install Tracker
                                 </h3>
                                 <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
                                     Paste this before the &lt;/head&gt; tag on your website

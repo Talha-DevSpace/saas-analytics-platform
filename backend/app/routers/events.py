@@ -273,7 +273,7 @@ def process_queue_direct(
     return {"status": "nothing_inserted"}
 
 
-@router.get("/recent")
+# @router.get("/recent")
 def get_recent_events(
     limit: int = 20,
     db: Session = Depends(get_db),

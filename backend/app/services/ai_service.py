@@ -35,8 +35,6 @@ Respond ONLY with a JSON object in this exact format, no extra text:
 
     response = client.models.generate_content(
         model="gemini-3-flash-preview", contents=prompt)
-    # print(response.text)
-
 
 # Extract the text response
     response_text = response.text.strip() # type: ignore

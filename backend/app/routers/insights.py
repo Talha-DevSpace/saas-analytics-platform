@@ -34,9 +34,10 @@ def generate_insights(
     try:
         insight_data = ai_service.generate_insight(analytics_data)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"AI service error: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"AI service error: {str(e)}")
 
-    insight_data["generated_at"] = datetime.now(timezone.utc).isoformat()
+    # insight_data["generated_at"] = datetime.now(timezone.utc).isoformat()
 
     new_insight = Insight(
         company_id=company.id,
@@ -63,6 +64,7 @@ def get_insight_history(
         .limit(10)
         .all()
     )
+
     return [
         {
             "insight":      i.insight_text,

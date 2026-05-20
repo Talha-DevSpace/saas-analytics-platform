@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
     default_retry_delay=120
 )
 def recalculate_daily_analytics(self):
-    
+
     db = SessionLocal()
     redis_client = get_redis()
     today = date.today()
@@ -29,10 +29,12 @@ def recalculate_daily_analytics(self):
         companies = db.query(Company).all()
 
         if not companies:
-            logger.info("No companies found. Skipping analytics recalculation.")
+            logger.info(
+                "No companies found. Skipping analytics recalculation.")
             return {"companies_processed": 0}
 
-        logger.info(f"Recalculating analytics for {len(companies)} company/companies")
+        logger.info(
+            f"Recalculating analytics for {len(companies)} company/companies")
 
         for company in companies:
             company_id = str(company.id)
@@ -40,14 +42,16 @@ def recalculate_daily_analytics(self):
             try:
                 # ── Calculate all metrics ──
                 total_users = analytics_service.get_total_users(company_id, db)
-                total_events = analytics_service.get_total_events(company_id, db)
-                active_users = analytics_service.get_active_users_today(company_id, db)
+                total_events = analytics_service.get_total_events(
+                    company_id, db)
+                active_users = analytics_service.get_active_users_today(
+                    company_id, db)
                 top_pages = analytics_service.get_top_pages(company_id, db)
                 funnel_data = analytics_service.get_funnel_data(company_id, db)
-                events_over_time = analytics_service.get_events_over_time(company_id, db)
+                events_over_time = analytics_service.get_events_over_time(
+                    company_id, db)
 
                 # ── Save/Update daily snapshot in PostgreSQL ──
-                # Check if we already have a record for today
                 existing_snapshot = db.query(AnalyticsDaily).filter(
                     AnalyticsDaily.company_id == company.id,
                     AnalyticsDaily.date == today
@@ -55,10 +59,10 @@ def recalculate_daily_analytics(self):
 
                 if existing_snapshot:
                     # Update existing record for today
-                    existing_snapshot.active_users = active_users # type: ignore
-                    existing_snapshot.total_events = total_events # type: ignore
-                    existing_snapshot.top_pages = top_pages # type: ignore
-                    existing_snapshot.funnel_data = funnel_data # type: ignore
+                    existing_snapshot.active_users = active_users  # type: ignore
+                    existing_snapshot.total_events = total_events  # type: ignore
+                    existing_snapshot.top_pages = top_pages  # type: ignore
+                    existing_snapshot.funnel_data = funnel_data  # type: ignore
                 else:
                     # Create new record for today
                     snapshot = AnalyticsDaily(
@@ -74,7 +78,6 @@ def recalculate_daily_analytics(self):
                 db.commit()
 
                 # ── Refresh Redis cache ──
-                # This replaces whatever was cached before
                 analytics_data = {
                     "total_users": total_users,
                     "total_events": total_events,
@@ -86,7 +89,6 @@ def recalculate_daily_analytics(self):
 
                 cache_key = f"analytics:overview:{company_id}"
 
-                # Reset the cache with fresh data (5-minute TTL)
                 redis_client.setex(
                     cache_key,
                     300,
@@ -97,7 +99,6 @@ def recalculate_daily_analytics(self):
                 logger.info(f"Analytics updated for company: {company.name}")
 
             except Exception as company_error:
-                # If one company fails, log it but continue with others
                 db.rollback()
                 logger.error(
                     f"Failed to process analytics for "
@@ -111,16 +112,14 @@ def recalculate_daily_analytics(self):
     finally:
         db.close()
 
-    logger.info(f"Analytics recalculation done. Companies processed: {companies_processed}")
+    logger.info(
+        f"Analytics recalculation done. Companies processed: {companies_processed}")
     return {"companies_processed": companies_processed}
 
 
 @celery_app.task(name="app.workers.analytics_worker.get_historical_analytics")
 def get_historical_analytics(company_id: str, days: int = 7):
-    """
-    Fetches the last N days of daily snapshots for a company.
-    Used for trend charts on the dashboard.
-    """
+
     db = SessionLocal()
 
     try:

@@ -86,7 +86,8 @@ def get_funnel_data(company_id: str, db: Session) -> list:
             "users": count,
             "drop_off_percent": drop_off
         })
-        print(f"Step: {step}, Previous Count: {previous_count}, Users: {count}, Drop-off: {drop_off}%")
+        print(
+            f"Step: {step}, Previous Count: {previous_count}, Users: {count}, Drop-off: {drop_off}%")
 
         previous_count = count
 

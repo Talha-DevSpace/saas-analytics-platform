@@ -6,18 +6,18 @@ import { registerCompany, loginCompany, saveToken, saveCompanyData } from '@/lib
 
 export default function LoginPage() {
   const router = useRouter()
-  const [activeTab, setActiveTab]     = useState('login')
-  const [loading, setLoading]         = useState(false)
-  const [error, setError]             = useState('')
-  const [registered, setRegistered]   = useState(null)
+  const [activeTab, setActiveTab] = useState('login')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [registered, setRegistered] = useState(null)
 
   // Login form state
-  const [loginEmail, setLoginEmail]       = useState('')
+  const [loginEmail, setLoginEmail] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
 
   // Register form state
-  const [regName, setRegName]         = useState('')
-  const [regEmail, setRegEmail]       = useState('')
+  const [regName, setRegName] = useState('')
+  const [regEmail, setRegEmail] = useState('')
   const [regPassword, setRegPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
 
@@ -30,9 +30,9 @@ export default function LoginPage() {
       const data = await loginCompany(loginEmail, loginPassword)
       saveToken(data.access_token)
       saveCompanyData({
-        company_id:   data.company_id,
+        company_id: data.company_id,
         company_name: data.company_name,
-        api_key:      data.api_key,
+        api_key: data.api_key,
       })
       router.push('/dashboard')
     } catch (err) {
@@ -100,16 +100,22 @@ export default function LoginPage() {
 
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: '28px' }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center',
-            gap: '8px', marginBottom: '12px' }}>
+          <div style={{
+            display: 'inline-flex', alignItems: 'center',
+            gap: '8px', marginBottom: '12px'
+          }}>
             <div className="pulse-dot" />
-            <span style={{ color: 'var(--accent-cyan)', fontSize: '11px',
-              letterSpacing: '3px', textTransform: 'uppercase' }}>
+            <span style={{
+              color: 'var(--accent-cyan)', fontSize: '11px',
+              letterSpacing: '3px', textTransform: 'uppercase'
+            }}>
               Live Analytics
             </span>
           </div>
-          <h1 style={{ fontSize: '28px', fontWeight: 700,
-            color: 'var(--text-primary)', marginBottom: '6px' }}>
+          <h1 style={{
+            fontSize: '28px', fontWeight: 700,
+            color: 'var(--text-primary)', marginBottom: '6px'
+          }}>
             SaaS Analytics
           </h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
@@ -121,8 +127,10 @@ export default function LoginPage() {
         <div className="card card-accent">
 
           {/* Tabs */}
-          <div style={{ display: 'flex', borderBottom: '1px solid var(--border)',
-            marginBottom: '24px' }}>
+          <div style={{
+            display: 'flex', borderBottom: '1px solid var(--border)',
+            marginBottom: '24px'
+          }}>
             {[['login', 'Login'], ['register', 'Register']].map(([key, label]) => (
               <button key={key}
                 onClick={() => { setActiveTab(key); setError(''); setRegistered(null) }}
@@ -141,10 +149,12 @@ export default function LoginPage() {
 
           {/* Error */}
           {error && (
-            <div style={{ background: 'rgba(239,68,68,0.1)',
+            <div style={{
+              background: 'rgba(239,68,68,0.1)',
               border: '1px solid var(--accent-red)', borderRadius: '8px',
               padding: '10px 14px', color: 'var(--accent-red)',
-              fontSize: '13px', marginBottom: '16px' }}>
+              fontSize: '13px', marginBottom: '16px'
+            }}>
               {error}
             </div>
           )}
@@ -170,10 +180,12 @@ export default function LoginPage() {
                 />
                 <button type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  style={{ position: 'absolute', right: '12px', top: '50%',
+                  style={{
+                    position: 'absolute', right: '12px', top: '50%',
                     transform: 'translateY(-50%)', background: 'none',
                     border: 'none', cursor: 'pointer',
-                    color: 'var(--text-muted)', fontSize: '16px' }}>
+                    color: 'var(--text-muted)', fontSize: '16px'
+                  }}>
                   {showPassword ? '🙈' : '👁'}
                 </button>
               </div>
@@ -191,8 +203,10 @@ export default function LoginPage() {
                 // Success state — show API key
                 <div style={{ textAlign: 'center' }}>
                   <div style={{ fontSize: '40px', marginBottom: '10px' }}>✅</div>
-                  <p style={{ color: 'var(--text-primary)', fontWeight: 700,
-                    fontSize: '16px', marginBottom: '6px' }}>
+                  <p style={{
+                    color: 'var(--text-primary)', fontWeight: 700,
+                    fontSize: '16px', marginBottom: '6px'
+                  }}>
                     Company Registered!
                   </p>
                   <p style={{ color: 'var(--text-secondary)', fontSize: '13px',
@@ -250,10 +264,12 @@ export default function LoginPage() {
                     />
                     <button type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      style={{ position: 'absolute', right: '12px', top: '50%',
+                      style={{
+                        position: 'absolute', right: '12px', top: '50%',
                         transform: 'translateY(-50%)', background: 'none',
                         border: 'none', cursor: 'pointer',
-                        color: 'var(--text-muted)', fontSize: '16px' }}>
+                        color: 'var(--text-muted)', fontSize: '16px'
+                      }}>
                       {showPassword ? '🙈' : '👁'}
                     </button>
                   </div>
