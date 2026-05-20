@@ -136,7 +136,7 @@ saas-analytics/
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-username/saas-analytics.git
+git clone https://github.com/Talha-DevSpace/saas-analytics-platform.git
 cd saas-analytics/backend
 
 # 2. Create and activate virtual environment
